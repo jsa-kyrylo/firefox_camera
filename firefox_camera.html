@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firefox Camera Control</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f0f0f0; }
+        video { width: 100%; max-width: 500px; border-radius: 8px; background: #000; }
+        .controls { margin-top: 20px; display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+        button { padding: 12px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; background: #0060df; color: white; }
+        button:disabled { background: #ccc; }
+        #log { margin-top: 20px; font-size: 12px; color: #666; width: 100%; max-width: 500px; }
+    </style>
+</head>
+<body>
+
+    <video id="preview" autoplay playsinline></video>
+
+    <div class="controls">
+        <button id="switchBtn">Перемкнути камеру</button>
+        <button id="torchBtn" disabled>Ліхтарик: ВИМК</button>
+    </div>
+
+    <div id="log"></div>
+
+    <script>
+        let currentStream = null;
+        let useFrontCamera = false;
+        let isTorchOn = false;
+
+        const videoElem = document.getElementById('preview');
+        const switchBtn = document.getElementById('switchBtn');
+        const torchBtn = document.getElementById('torchBtn');
+        const logElem = document.getElementById('log');
+
+        function log(msg) { logElem.innerHTML += `> ${msg}<br>`; }
+
+        async function startCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+
+            const constraints = {
+                video: { facingMode: useFrontCamera ? "user" : "environment" }
+            };
+
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElem.srcObject = currentStream;
+                
+                const track = currentStream.getVideoTracks()[0];
+                checkTorchSupport(track);
+                
+                log(`Камера завантажена: ${useFrontCamera ? 'фронтальна' : 'задня'}`);
+            } catch (err) {
+                log(`Помилка: ${err.name}`);
+            }
+        }
+
+        function checkTorchSupport(track) {
+            // Firefox потребує затримки або перевірки capabilities після активації треку
+            setTimeout(() => {
+                const caps = track.getCapabilities ? track.getCapabilities() : {};
+                if (caps.torch) {
+                    torchBtn.disabled = false;
+                    log("Ліхтарик підтримується");
+                } else {
+                    torchBtn.disabled = true;
+                    log("Ліхтарик не підтримується на цій камері");
+                }
+            }, 500);
+        }
+
+        switchBtn.addEventListener('click', () => {
+            useFrontCamera = !useFrontCamera;
+            isTorchOn = false;
+            torchBtn.innerText = "Ліхтарик: ВИМК";
+            startCamera();
+        });
+
+        torchBtn.addEventListener('click', async () => {
+            const track = currentStream.getVideoTracks()[0];
+            try {
+                isTorchOn = !isTorchOn;
+                await track.applyConstraints({
+                    advanced: [{ torch: isTorchOn }]
+                });
+                torchBtn.innerText = `Ліхтарик: ${isTorchOn ? 'УВІМК' : 'ВИМК'}`;
+            } catch (err) {
+                log(`Помилка ліхтарика: ${err}`);
+            }
+        });
+
+        // Запуск при завантаженні
+        startCamera();
+    </script>
+</body>
+</html>
