@@ -18,7 +18,7 @@
     <video id="preview" autoplay playsinline></video>
 
     <div class="controls">
-        <button id="switchBtn">Перемкнути камеру</button>
+        <select id="cameraSelect"></select>
         <button id="torchBtn" disabled>Ліхтарик: ВИМК</button>
     </div>
 
@@ -26,23 +26,44 @@
 
     <script>
         let currentStream = null;
-        let useFrontCamera = false;
         let isTorchOn = false;
 
         const videoElem = document.getElementById('preview');
-        const switchBtn = document.getElementById('switchBtn');
+        const cameraSelect = document.getElementById('cameraSelect');
         const torchBtn = document.getElementById('torchBtn');
         const logElem = document.getElementById('log');
 
         function log(msg) { logElem.innerHTML += `> ${msg}<br>`; }
+
+        async function populateCameras() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                cameraSelect.innerHTML = '';
+                videoDevices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Camera ${device.deviceId.slice(0,8)}`;
+                    cameraSelect.appendChild(option);
+                });
+                // Set selected to current camera
+                if (currentStream) {
+                    const currentDeviceId = currentStream.getVideoTracks()[0].getSettings().deviceId;
+                    cameraSelect.value = currentDeviceId;
+                }
+            } catch (err) {
+                log(`Помилка отримання камер: ${err}`);
+            }
+        }
 
         async function startCamera() {
             if (currentStream) {
                 currentStream.getTracks().forEach(track => track.stop());
             }
 
+            const selectedDeviceId = cameraSelect.value;
             const constraints = {
-                video: { facingMode: useFrontCamera ? "user" : "environment" }
+                video: { deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined }
             };
 
             try {
@@ -52,7 +73,8 @@
                 const track = currentStream.getVideoTracks()[0];
                 checkTorchSupport(track);
                 
-                log(`Камера завантажена: ${useFrontCamera ? 'фронтальна' : 'задня'}`);
+                log(`Камера завантажена`);
+                populateCameras(); // Update labels after permission
             } catch (err) {
                 log(`Помилка: ${err.name}`);
             }
@@ -72,12 +94,7 @@
             }, 500);
         }
 
-        switchBtn.addEventListener('click', () => {
-            useFrontCamera = !useFrontCamera;
-            isTorchOn = false;
-            torchBtn.innerText = "Ліхтарик: ВИМК";
-            startCamera();
-        });
+        cameraSelect.addEventListener('change', startCamera);
 
         torchBtn.addEventListener('click', async () => {
             const track = currentStream.getVideoTracks()[0];
@@ -93,7 +110,7 @@
         });
 
         // Запуск при завантаженні
-        startCamera();
+        populateCameras();
     </script>
 </body>
 </html>
