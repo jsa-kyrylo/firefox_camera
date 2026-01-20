@@ -3,14 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Firefox Camera Control</title>
+    <title>Firefox Camera Advanced Control</title>
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f0f0f0; }
-        video { width: 100%; max-width: 500px; border-radius: 8px; background: #000; }
-        .controls { margin-top: 20px; display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
-        button { padding: 12px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; background: #0060df; color: white; }
-        button:disabled { background: #ccc; }
-        #log { margin-top: 20px; font-size: 12px; color: #666; width: 100%; max-width: 500px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f4f4f9; color: #333; }
+        video { width: 100%; max-width: 600px; border-radius: 12px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        .controls { margin-top: 20px; display: flex; flex-direction: column; gap: 15px; width: 100%; max-width: 600px; }
+        select, button { padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #ccc; }
+        button { cursor: pointer; border: none; background: #0060df; color: white; font-weight: bold; transition: background 0.3s; }
+        button:disabled { background: #a2a2a2; cursor: not-allowed; }
+        button:active { background: #003ead; }
+        #torchBtn.on { background: #ff9500; }
+        #log { margin-top: 20px; font-family: monospace; font-size: 11px; background: #ececec; padding: 10px; width: 100%; max-width: 600px; border-radius: 5px; overflow-x: auto; }
     </style>
 </head>
 <body>
@@ -18,83 +21,100 @@
     <video id="preview" autoplay playsinline></video>
 
     <div class="controls">
-        <select id="cameraSelect"></select>
+        <label for="deviceSelect">Оберіть камеру:</label>
+        <select id="deviceSelect">
+            <option value="">Завантаження камер...</option>
+        </select>
+        
         <button id="torchBtn" disabled>Ліхтарик: ВИМК</button>
     </div>
 
-    <div id="log"></div>
+    <div id="log">Системні повідомлення:</div>
 
     <script>
         let currentStream = null;
         let isTorchOn = false;
 
         const videoElem = document.getElementById('preview');
-        const cameraSelect = document.getElementById('cameraSelect');
+        const deviceSelect = document.getElementById('deviceSelect');
         const torchBtn = document.getElementById('torchBtn');
         const logElem = document.getElementById('log');
 
-        function log(msg) { logElem.innerHTML += `> ${msg}<br>`; }
+        function log(msg) { 
+            const now = new Date().toLocaleTimeString();
+            logElem.innerHTML += `<br>[${now}] ${msg}`; 
+            console.log(msg);
+        }
 
-        async function populateCameras() {
+        // 1. Отримання списку камер
+        async function updateDeviceList() {
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
-                const videoDevices = devices.filter(device => device.kind === 'videoinput');
-                cameraSelect.innerHTML = '';
-                videoDevices.forEach(device => {
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                
+                deviceSelect.innerHTML = '';
+                videoDevices.forEach((device, index) => {
                     const option = document.createElement('option');
                     option.value = device.deviceId;
-                    option.text = device.label || `Camera ${device.deviceId.slice(0,8)}`;
-                    cameraSelect.appendChild(option);
+                    option.text = device.label || `Камера ${index + 1} (ID: ${device.deviceId.slice(0, 5)}...)`;
+                    deviceSelect.appendChild(option);
                 });
-                // Set selected to current camera
-                if (currentStream) {
-                    const currentDeviceId = currentStream.getVideoTracks()[0].getSettings().deviceId;
-                    cameraSelect.value = currentDeviceId;
-                }
             } catch (err) {
-                log(`Помилка отримання камер: ${err}`);
+                log(`Помилка переліку пристроїв: ${err.message}`);
             }
         }
 
-        async function startCamera() {
+        // 2. Запуск обраної камери
+        async function startCamera(deviceId) {
+            log("Спроба запуску камери...");
+            
             if (currentStream) {
                 currentStream.getTracks().forEach(track => track.stop());
             }
 
-            const selectedDeviceId = cameraSelect.value;
             const constraints = {
-                video: { deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined }
+                video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "environment" }
             };
 
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 videoElem.srcObject = currentStream;
                 
-                const track = currentStream.getVideoTracks()[0];
-                checkTorchSupport(track);
+                // Після першого успішного запуску оновлюємо список (щоб з'явилися назви)
+                await updateDeviceList();
                 
-                log(`Камера завантажена`);
-                populateCameras(); // Update labels after permission
+                const track = currentStream.getVideoTracks()[0];
+                checkTorch(track);
+                
+                log("Камеру активовано успішно.");
             } catch (err) {
-                log(`Помилка: ${err.name}`);
+                log(`Помилка getUserMedia: ${err.name}`);
             }
         }
 
-        function checkTorchSupport(track) {
-            // Firefox потребує затримки або перевірки capabilities після активації треку
+        // 3. Перевірка підтримки ліхтарика
+        function checkTorch(track) {
             setTimeout(() => {
-                const caps = track.getCapabilities ? track.getCapabilities() : {};
-                if (caps.torch) {
+                const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+                if (capabilities.torch) {
                     torchBtn.disabled = false;
-                    log("Ліхтарик підтримується");
+                    log("Ліхтарик доступний для цієї камери.");
                 } else {
                     torchBtn.disabled = true;
-                    log("Ліхтарик не підтримується на цій камері");
+                    isTorchOn = false;
+                    torchBtn.classList.remove('on');
+                    torchBtn.innerText = "Ліхтарик: НЕ ПІДТРИМУЄТЬСЯ";
+                    log("Ліхтарик не підтримується.");
                 }
             }, 500);
         }
 
-        cameraSelect.addEventListener('change', startCamera);
+        // Події
+        deviceSelect.addEventListener('change', () => {
+            isTorchOn = false;
+            torchBtn.innerText = "Ліхтарик: ВИМК";
+            startCamera(deviceSelect.value);
+        });
 
         torchBtn.addEventListener('click', async () => {
             const track = currentStream.getVideoTracks()[0];
@@ -104,13 +124,14 @@
                     advanced: [{ torch: isTorchOn }]
                 });
                 torchBtn.innerText = `Ліхтарик: ${isTorchOn ? 'УВІМК' : 'ВИМК'}`;
+                torchBtn.classList.toggle('on', isTorchOn);
             } catch (err) {
-                log(`Помилка ліхтарика: ${err}`);
+                log(`Помилка керування ліхтариком: ${err.message}`);
             }
         });
 
-        // Запуск при завантаженні
-        populateCameras();
+        // Ініціалізація при завантаженні
+        startCamera();
     </script>
 </body>
 </html>
